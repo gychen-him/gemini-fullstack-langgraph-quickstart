@@ -1,4 +1,10 @@
+import sys
 import os
+
+# Add the current directory to Python path to ensure we import from local files
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 from agent.tools_and_schemas import SearchQueryList, Reflection
 from dotenv import load_dotenv
@@ -32,12 +38,30 @@ from agent.prompts import (
     answer_instructions,
 )
 from langchain_google_genai import ChatGoogleGenerativeAI
-from agent.utils import (
-    get_citations,
-    get_research_topic,
-    insert_citation_markers,
-    resolve_urls,
-)
+
+# Import utils functions - try local first, then fallback
+try:
+    from utils import (
+        get_citations,
+        get_research_topic,
+        insert_citation_markers,
+        resolve_urls,
+        format_research_citations,
+        create_references_section,
+        enhance_research_summaries_with_citations,
+        validate_citations_in_content,
+    )
+except ImportError:
+    from agent.utils import (
+        get_citations,
+        get_research_topic,
+        insert_citation_markers,
+        resolve_urls,
+        format_research_citations,
+        create_references_section,
+        enhance_research_summaries_with_citations,
+        validate_citations_in_content,
+    )
 
 # Load environment variables from backend/.env file
 env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), '.env')
@@ -225,7 +249,7 @@ class VectorAPIClient:
     def query_documents(
         self,
         query: str,
-        max_retrieve_docs: int = 10,
+        max_retrieve_docs: int = 20,
         similarity_threshold: float = 0.6,
         enable_reflection: bool = False,
         timeout: int = 180  # 180秒超时，更快发现连接问题
@@ -460,7 +484,7 @@ def knowledge_base_research(state: WebSearchState, config: RunnableConfig) -> Ov
         # Query the vector database with timeout
         result = vector_client.query_documents(
             query=search_query,
-            max_retrieve_docs=5,
+            max_retrieve_docs=20,  # 使用20个文档以获得更全面的结果
             similarity_threshold=0.6,
             enable_reflection=False,  # 禁用反思以提高速度
             timeout=30  # 30秒超时
@@ -653,14 +677,23 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
         Dictionary with state update, including running_summary key containing the formatted final summary with sources
     """
     configurable = Configuration.from_runnable_config(config)
+    sources = state.get("sources_gathered", [])
 
-    # Format the prompt
+    # Use the enhanced citation function to prepare summaries
     current_date = get_current_date()
+    enhanced_summaries = enhance_research_summaries_with_citations(
+        state["web_research_result"], 
+        sources
+    )
+    
     formatted_prompt = answer_instructions.format(
         current_date=current_date,
         research_topic=get_research_topic(state["messages"]),
-        summaries="\n---\n\n".join(state["web_research_result"]),
+        summaries=enhanced_summaries,
     )
+
+    print(f"[DEBUG] finalize_answer: Number of sources: {len(sources)}")
+    print(f"[DEBUG] finalize_answer: Enhanced summaries length: {len(enhanced_summaries)}")
 
     # init Reasoning Model via OpenRouter
     llm = ChatOpenAI(
@@ -672,9 +705,43 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
     )
     result = llm.invoke(formatted_prompt)
 
-    # Since we don't have short_urls, we'll just use the sources as is
+    # Get the main content and convert citation markers
+    content = result.content
+    print(f"[DEBUG] finalize_answer: Original content length: {len(content)}")
+    
+    # Validate citations before processing
+    try:
+        citation_validation = validate_citations_in_content(content, sources)
+        print(f"[DEBUG] finalize_answer: Citation validation: {citation_validation}")
+        
+        if citation_validation["invalid_citations"]:
+            print(f"[WARNING] finalize_answer: Found invalid citations: {citation_validation['invalid_citations']}")
+        
+        coverage = citation_validation.get("citation_coverage", 0)
+        print(f"[INFO] finalize_answer: Citation coverage: {coverage:.2%}")
+        
+    except ImportError:
+        print("[WARNING] finalize_answer: Citation validation not available")
+    
+    # Convert existing citation markers to unified [#N] format
+    if sources:
+        for idx, source in enumerate(sources, 1):
+            old_marker = source.get("short_url", "")
+            new_marker = f"[#{idx}]"
+            if old_marker in content:
+                content = content.replace(old_marker, new_marker)
+                print(f"[DEBUG] finalize_answer: Converted '{old_marker}' to '{new_marker}'")
+    
+    # Add properly formatted references section
+    references_section = create_references_section(sources)
+    if references_section:
+        content += references_section
+        print(f"[DEBUG] finalize_answer: Added references section")
+    
+    print(f"[DEBUG] finalize_answer: Final content length: {len(content)}")
+    
     return {
-        "messages": [AIMessage(content=result.content)],
+        "messages": [AIMessage(content=content)],
         "sources_gathered": state["sources_gathered"],
     }
 

@@ -87,7 +87,20 @@ Instructions:
 - You have access to all the information gathered from the previous steps.
 - You have access to the user's question.
 - Generate a high-quality answer to the user's question based on the provided summaries and the user's question.
-- you MUST include all the citations from the summaries in the answer correctly.
+
+CRITICAL CITATION REQUIREMENTS:
+- You MUST cite specific sources when making factual claims or using information from the summaries
+- When referencing information from web sources, use the exact citation markers found in the summaries (e.g., [0], [1], etc.)
+- When referencing information from knowledge base sources, use the exact citation markers found in the summaries (e.g., [KB-1], [KB-2], etc.)
+- Place citations immediately after the relevant sentence or claim, before punctuation
+- If multiple sources support the same claim, include all relevant citations
+- Do NOT create new citation numbers - only use the ones that already exist in the summaries
+- Every factual statement should be traceable to a source through proper citation
+
+EXAMPLE CITATION USAGE:
+- "The company reported a 15% increase in revenue [0]."
+- "According to the research findings, this approach shows promising results [KB-1][2]."
+- "The study concluded that implementation takes 3-6 months [KB-2], while industry experts suggest it could be faster [1][3]."
 
 User Context:
 - {research_topic}
