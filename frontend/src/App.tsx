@@ -39,24 +39,58 @@ export default function App() {
       } else if (event.web_research) {
         const sources = event.web_research.sources_gathered || [];
         const numSources = sources.length;
-        const uniqueLabels = [
-          ...new Set(sources.map((s: any) => s.label).filter(Boolean)),
-        ];
-        const exampleLabels = uniqueLabels.slice(0, 3).join(", ");
+        const searchQuery = event.web_research.search_query?.[0] || "unknown query";
         processedEvent = {
           title: "Web Research",
-          data: `Gathered ${numSources} sources. Related to: ${
-            exampleLabels || "N/A"
-          }.`,
+          data: `Searching "${searchQuery}" - Found ${numSources} sources`,
+        };
+      } else if (event.knowledge_base_research) {
+        const sources = event.knowledge_base_research.sources_gathered || [];
+        const numSources = sources.length;
+        const searchQuery = event.knowledge_base_research.search_query?.[0] || "unknown query";
+        const searchStatus = event.knowledge_base_research.kb_search_status || "unknown";
+        const searchProgress = event.knowledge_base_research.kb_search_progress || "";
+        
+        // 根据搜索状态显示不同的信息
+        let statusIcon = "🔍";
+        let statusMessage = "";
+        
+        switch (searchStatus) {
+          case "initializing":
+            statusIcon = "🔄";
+            statusMessage = `Connecting to vector database for "${searchQuery}"`;
+            break;
+          case "timeout":
+            statusIcon = "⏱️";
+            statusMessage = `"${searchQuery}" - ${searchProgress}`;
+            break;
+          case "error":
+          case "failed":
+            statusIcon = "❌";
+            statusMessage = `"${searchQuery}" - ${searchProgress}`;
+            break;
+          case "completed":
+            statusIcon = numSources > 0 ? "✅" : "📭";
+            statusMessage = numSources > 0 
+              ? `Found ${numSources} documents for "${searchQuery}"`
+              : `"${searchQuery}" - ${searchProgress}`;
+            break;
+          default:
+            statusMessage = numSources > 0 
+              ? `Searching "${searchQuery}" - Found ${numSources} documents`
+              : `Searching "${searchQuery}" - ${searchProgress || "No relevant documents found"}`;
+        }
+        
+        processedEvent = {
+          title: "Knowledge Base Research",
+          data: `${statusIcon} ${statusMessage}`,
         };
       } else if (event.reflection) {
         processedEvent = {
           title: "Reflection",
           data: event.reflection.is_sufficient
             ? "Search successful, generating final answer."
-            : `Need more information, searching for ${event.reflection.follow_up_queries.join(
-                ", "
-              )}`,
+            : `Need more information, searching for ${(event.reflection.follow_up_queries || []).join(", ")}`,
         };
       } else if (event.finalize_answer) {
         processedEvent = {
@@ -154,19 +188,17 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-neutral-800 text-neutral-100 font-sans antialiased">
-      <main className="flex-1 flex flex-col overflow-hidden max-w-4xl mx-auto w-full">
-        <div
-          className={`flex-1 overflow-y-auto ${
-            thread.messages.length === 0 ? "flex" : ""
-          }`}
-        >
-          {thread.messages.length === 0 ? (
+      <main className="flex-1 flex flex-col max-w-full mx-auto w-full">
+        {thread.messages.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center">
             <WelcomeScreen
               handleSubmit={handleSubmit}
               isLoading={thread.isLoading}
               onCancel={handleCancel}
             />
-          ) : (
+          </div>
+        ) : (
+          <div className="flex-1">
             <ChatMessagesView
               messages={thread.messages}
               isLoading={thread.isLoading}
@@ -176,8 +208,8 @@ export default function App() {
               liveActivityEvents={processedEventsTimeline}
               historicalActivities={historicalActivities}
             />
-          )}
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );

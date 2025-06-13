@@ -1,7 +1,7 @@
 import type React from "react";
 import type { Message } from "@langchain/langgraph-sdk";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Copy, CopyCheck } from "lucide-react";
+import { Loader2, Copy, CopyCheck, ChevronDown, ChevronRight, Activity, Search, Brain, Pen, TextSearch, Database } from "lucide-react";
 import { InputForm } from "@/components/InputForm";
 import { Button } from "@/components/ui/button";
 import { useState, ReactNode } from "react";
@@ -9,9 +9,8 @@ import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import {
-  ActivityTimeline,
   ProcessedEvent,
-} from "@/components/ActivityTimeline"; // Assuming ActivityTimeline is in the same dir or adjust path
+} from "@/components/ActivityTimeline";
 
 // Markdown component props type from former ReportView
 type MdComponentProps = {
@@ -134,6 +133,80 @@ const mdComponents = {
   ),
 };
 
+// Simple timeline component without extra headers
+const SimpleTimeline: React.FC<{ events: ProcessedEvent[]; isLoading: boolean }> = ({ events, isLoading }) => {
+  const getEventIcon = (title: string) => {
+    if (title.toLowerCase().includes("generating")) {
+      return <TextSearch className="h-4 w-4 text-neutral-400" />;
+    } else if (title.toLowerCase().includes("reflection")) {
+      return <Brain className="h-4 w-4 text-neutral-400" />;
+    } else if (title.toLowerCase().includes("knowledge base")) {
+      return <Database className="h-4 w-4 text-neutral-400" />;
+    } else if (title.toLowerCase().includes("research")) {
+      return <Search className="h-4 w-4 text-neutral-400" />;
+    } else if (title.toLowerCase().includes("finalizing")) {
+      return <Pen className="h-4 w-4 text-neutral-400" />;
+    }
+    return <Activity className="h-4 w-4 text-neutral-400" />;
+  };
+
+  return (
+    <div className="p-4 bg-transparent">
+      {isLoading && events.length === 0 && (
+        <div className="relative pl-8 pb-4">
+          <div className="absolute left-3 top-3.5 h-full w-0.5 bg-neutral-600/50" />
+          <div className="absolute left-0.5 top-2 h-5 w-5 rounded-full bg-neutral-600/50 flex items-center justify-center ring-4 ring-neutral-800/30">
+            <Loader2 className="h-3 w-3 text-neutral-400 animate-spin" />
+          </div>
+          <div>
+            <p className="text-sm text-neutral-300 font-medium">
+              Searching...
+            </p>
+          </div>
+        </div>
+      )}
+      {events.length > 0 && (
+        <div className="space-y-0">
+          {events.map((eventItem, index) => (
+            <div key={index} className="relative pl-8 pb-4">
+              {index < events.length - 1 || (isLoading && index === events.length - 1) ? (
+                <div className="absolute left-3 top-3.5 h-full w-0.5 bg-neutral-600/50" />
+              ) : null}
+              <div className="absolute left-0.5 top-2 h-6 w-6 rounded-full bg-neutral-600/50 flex items-center justify-center ring-4 ring-neutral-800/30">
+                {getEventIcon(eventItem.title)}
+              </div>
+              <div>
+                <p className="text-sm text-neutral-200 font-medium mb-0.5">
+                  {eventItem.title}
+                </p>
+                <p className="text-xs text-neutral-300 leading-relaxed">
+                  {typeof eventItem.data === "string"
+                    ? eventItem.data
+                    : Array.isArray(eventItem.data)
+                    ? (eventItem.data as string[]).join(", ")
+                    : JSON.stringify(eventItem.data)}
+                </p>
+              </div>
+            </div>
+          ))}
+          {isLoading && events.length > 0 && (
+            <div className="relative pl-8 pb-4">
+              <div className="absolute left-0.5 top-2 h-5 w-5 rounded-full bg-neutral-600/50 flex items-center justify-center ring-4 ring-neutral-800/30">
+                <Loader2 className="h-3 w-3 text-neutral-400 animate-spin" />
+              </div>
+              <div>
+                <p className="text-sm text-neutral-300 font-medium">
+                  Searching...
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Props for HumanMessageBubble
 interface HumanMessageBubbleProps {
   message: Message;
@@ -190,10 +263,7 @@ const AiMessageBubble: React.FC<AiMessageBubbleProps> = ({
     <div className={`relative break-words flex flex-col`}>
       {activityForThisBubble && activityForThisBubble.length > 0 && (
         <div className="mb-3 border-b border-neutral-700 pb-3 text-xs">
-          <ActivityTimeline
-            processedEvents={activityForThisBubble}
-            isLoading={isLiveActivityForThisBubble}
-          />
+          <SimpleTimeline events={activityForThisBubble} isLoading={isLiveActivityForThisBubble} />
         </div>
       )}
       <ReactMarkdown components={mdComponents}>
@@ -240,6 +310,7 @@ export function ChatMessagesView({
   historicalActivities,
 }: ChatMessagesViewProps) {
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [isResearchExpanded, setIsResearchExpanded] = useState(true);
 
   const handleCopy = async (text: string, messageId: string) => {
     try {
@@ -252,70 +323,144 @@ export function ChatMessagesView({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <ScrollArea className="flex-grow" ref={scrollAreaRef}>
-        <div className="p-4 md:p-6 space-y-2 max-w-4xl mx-auto pt-16">
+    <div className="flex flex-col h-full relative bg-neutral-800">
+      {/* Main Content Area */}
+      <ScrollArea className="flex-1 pb-24" ref={scrollAreaRef}>
+        <div className="max-w-4xl mx-auto p-6 bg-neutral-800 min-h-full">
           {messages.map((message, index) => {
             const isLast = index === messages.length - 1;
+            const isAI = message.type === "ai";
+            const isHuman = message.type === "human";
+            
+            // Get activity events for this specific message
+            const messageActivityEvents = isAI && message.id 
+              ? historicalActivities[message.id] || []
+              : [];
+            
+            // For the last AI message that's still loading, use live events
+            const currentActivityEvents = isLast && isLoading && isAI
+              ? liveActivityEvents
+              : messageActivityEvents;
+
             return (
-              <div key={message.id || `msg-${index}`} className="space-y-3">
-                <div
-                  className={`flex items-start gap-3 ${
-                    message.type === "human" ? "justify-end" : ""
-                  }`}
-                >
-                  {message.type === "human" ? (
+              <div key={message.id || `msg-${index}`} className="mb-8">
+                {/* Human Message */}
+                {isHuman && (
+                  <div className="flex justify-end mb-4">
                     <HumanMessageBubble
                       message={message}
                       mdComponents={mdComponents}
                     />
-                  ) : (
-                    <AiMessageBubble
-                      message={message}
-                      historicalActivity={historicalActivities[message.id!]}
-                      liveActivity={liveActivityEvents} // Pass global live events
-                      isLastMessage={isLast}
-                      isOverallLoading={isLoading} // Pass global loading state
-                      mdComponents={mdComponents}
-                      handleCopy={handleCopy}
-                      copiedMessageId={copiedMessageId}
-                    />
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {/* Research Section - Between Human Query and AI Answer */}
+                {isAI && (currentActivityEvents.length > 0 || (isLast && isLoading)) && (
+                  <div className="mb-6 flex justify-start">
+                    <div className="w-96 bg-neutral-800/30 backdrop-blur-sm rounded-lg border border-neutral-600/50 overflow-hidden">
+                      <div 
+                        className="p-3 border-b border-neutral-600/50 flex items-center gap-2 cursor-pointer hover:bg-neutral-700/30 transition-colors"
+                        onClick={() => setIsResearchExpanded(!isResearchExpanded)}
+                      >
+                        {isResearchExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                        <h3 className="text-sm font-semibold text-neutral-100">Research</h3>
+                      </div>
+                      {isResearchExpanded && (
+                        currentActivityEvents.length > 0 ? (
+                          <SimpleTimeline events={currentActivityEvents} isLoading={isLast && isLoading} />
+                        ) : (
+                          <div className="p-4 text-neutral-400 text-xs">
+                            Research in progress...
+                          </div>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Message - Final Answer */}
+                {isAI && (
+                  <div className="flex-1">
+                    <div className="bg-neutral-800 text-neutral-100">
+                      <ReactMarkdown components={mdComponents}>
+                        {typeof message.content === "string"
+                          ? message.content
+                          : JSON.stringify(message.content)}
+                      </ReactMarkdown>
+                      <Button
+                        variant="default"
+                        className="cursor-pointer bg-neutral-700 border-neutral-600 text-neutral-300 mt-3"
+                        onClick={() =>
+                          handleCopy(
+                            typeof message.content === "string"
+                              ? message.content
+                              : JSON.stringify(message.content),
+                            message.id!
+                          )
+                        }
+                      >
+                        {copiedMessageId === message.id ? "Copied" : "Copy"}
+                        {copiedMessageId === message.id ? <CopyCheck /> : <Copy />}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
+
+          {/* Loading State for New Query */}
           {isLoading &&
             (messages.length === 0 ||
               messages[messages.length - 1].type === "human") && (
-              <div className="flex items-start gap-3 mt-3">
-                {" "}
-                {/* AI message row structure */}
-                <div className="relative group max-w-[85%] md:max-w-[80%] rounded-xl p-3 shadow-sm break-words bg-neutral-800 text-neutral-100 rounded-bl-none w-full min-h-[56px]">
-                  {liveActivityEvents.length > 0 ? (
-                    <div className="text-xs">
-                      <ActivityTimeline
-                        processedEvents={liveActivityEvents}
-                        isLoading={true}
-                      />
+              <div>
+                {/* Research Section for Loading */}
+                <div className="mb-6 flex justify-start">
+                  <div className="w-96 bg-neutral-800/30 backdrop-blur-sm rounded-lg border border-neutral-600/50 overflow-hidden">
+                    <div 
+                      className="p-3 border-b border-neutral-600/50 flex items-center gap-2 cursor-pointer hover:bg-neutral-700/30 transition-colors"
+                      onClick={() => setIsResearchExpanded(!isResearchExpanded)}
+                    >
+                      {isResearchExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      <h3 className="text-sm font-semibold text-neutral-100">Research</h3>
                     </div>
-                  ) : (
+                    {isResearchExpanded && (
+                      liveActivityEvents.length > 0 ? (
+                        <SimpleTimeline events={liveActivityEvents} isLoading={true} />
+                      ) : (
+                        <div className="p-4 text-neutral-400 text-xs">
+                          Starting research...
+                        </div>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                {/* Loading Answer */}
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 bg-neutral-800 text-neutral-100 rounded-xl p-4 min-h-[56px]">
                     <div className="flex items-center justify-start h-full">
                       <Loader2 className="h-5 w-5 animate-spin text-neutral-400 mr-2" />
-                      <span>Processing...</span>
+                      <span>Generating answer...</span>
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
             )}
         </div>
       </ScrollArea>
-      <InputForm
-        onSubmit={onSubmit}
-        isLoading={isLoading}
-        onCancel={onCancel}
-        hasHistory={messages.length > 0}
-      />
+
+      {/* Fixed Input Form at Bottom Center */}
+      <div className="fixed bottom-0 left-0 right-0 bg-gradient-to-t from-neutral-800 via-neutral-800/95 to-transparent p-4 pt-8 pointer-events-none">
+        <div className="max-w-2xl mx-auto pointer-events-auto">
+          <InputForm
+            onSubmit={onSubmit}
+            isLoading={isLoading}
+            onCancel={onCancel}
+            hasHistory={messages.length > 0}
+          />
+        </div>
+      </div>
     </div>
   );
 }
