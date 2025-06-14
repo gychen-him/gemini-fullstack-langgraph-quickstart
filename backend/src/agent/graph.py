@@ -422,8 +422,8 @@ def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
             link = item.get("link", "")
             title = item.get("title", "")
             if link:
-                # Create a short URL format similar to the original code
-                short_url = f"[{idx}]"
+                # Use consistent numbering format starting from 1
+                short_url = f"[{idx + 1}]"
                 sources_gathered.append({
                     "value": link,
                     "short_url": short_url,
@@ -530,23 +530,33 @@ def knowledge_base_research(state: WebSearchState, config: RunnableConfig) -> Ov
         sources_gathered = []
         
         for idx, doc in enumerate(documents):
-            # Create formatted content
+            # Extract PubMed URL from source path IMMEDIATELY after getting from vector DB
+            try:
+                from agent.utils import format_kb_reference
+                pubmed_url = format_kb_reference(doc['source'])
+                print(f"[DEBUG] knowledge_base_research: Converted {doc['source']} to {pubmed_url}")
+            except ImportError:
+                pubmed_url = doc['source']
+                print(f"[DEBUG] knowledge_base_research: Import failed, using original path: {pubmed_url}")
+            
+            # Create formatted content using PubMed URL
             formatted_content += f"Document {idx + 1} (Score: {doc['score']:.3f}):\n"
-            formatted_content += f"Source: {doc['source']}\n"
+            formatted_content += f"Source: {pubmed_url}\n"  # Use PubMed URL instead of original path
             formatted_content += f"Content: {doc['content']}\n\n"
             
-            # Create source entry
+            # Create source entry with PubMed URL
             source_entry = {
-                "value": doc['source'],
-                "short_url": f"[KB-{idx + 1}]",
+                "value": pubmed_url,  # Use PubMed URL directly
+                "short_url": f"[{idx + 1}]",  # Use consistent numbering format
                 "label": doc.get('metadata', {}).get('filename', f"doc_{doc['id']}")
             }
+            print(f"[DEBUG] knowledge_base_research: Created source entry: {source_entry}")
             sources_gathered.append(source_entry)
             
             # Replace content with short URL reference
             formatted_content = formatted_content.replace(
                 doc['content'], 
-                f"{doc['content'][:200]}... [KB-{idx + 1}]"
+                f"{doc['content'][:200]}... [{idx + 1}]"
             )
         
         print(f"[SUCCESS] knowledge_base_research: Found {len(documents)} documents")
@@ -679,11 +689,45 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
     configurable = Configuration.from_runnable_config(config)
     sources = state.get("sources_gathered", [])
 
+    print(f"[DEBUG] finalize_answer: Number of sources: {len(sources)}")
+    print(f"[DEBUG] finalize_answer: ===== SOURCES_GATHERED DETAILS START =====")
+    for i, source in enumerate(sources):
+        print(f"[DEBUG] finalize_answer: Source {i+1}:")
+        print(f"[DEBUG] finalize_answer:   value: {source.get('value', 'N/A')}")
+        print(f"[DEBUG] finalize_answer:   short_url: {source.get('short_url', 'N/A')}")
+        print(f"[DEBUG] finalize_answer:   label: {source.get('label', 'N/A')}")
+    print(f"[DEBUG] finalize_answer: ===== SOURCES_GATHERED DETAILS END =====")
+
+    # Deduplicate and renumber sources to ensure global unique numbering
+    seen_values = set()
+    deduplicated_sources = []
+    
+    for source in sources:
+        value = source.get("value", "")
+        if value and value not in seen_values:
+            seen_values.add(value)
+            # Create new source with global unique numbering - simple sequential numbering
+            new_source = {
+                "value": value,
+                "short_url": f"[{len(deduplicated_sources) + 1}]",
+                "label": source.get("label", "")
+            }
+            deduplicated_sources.append(new_source)
+    
+    print(f"[DEBUG] finalize_answer: After deduplication: {len(deduplicated_sources)} sources")
+    print(f"[DEBUG] finalize_answer: ===== DEDUPLICATED SOURCES START =====")
+    for i, source in enumerate(deduplicated_sources):
+        print(f"[DEBUG] finalize_answer: Source {i+1}:")
+        print(f"[DEBUG] finalize_answer:   value: {source.get('value', 'N/A')}")
+        print(f"[DEBUG] finalize_answer:   short_url: {source.get('short_url', 'N/A')}")
+        print(f"[DEBUG] finalize_answer:   label: {source.get('label', 'N/A')}")
+    print(f"[DEBUG] finalize_answer: ===== DEDUPLICATED SOURCES END =====")
+
     # Use the enhanced citation function to prepare summaries
     current_date = get_current_date()
     enhanced_summaries = enhance_research_summaries_with_citations(
         state["web_research_result"], 
-        sources
+        deduplicated_sources  # Use deduplicated sources
     )
     
     formatted_prompt = answer_instructions.format(
@@ -705,44 +749,81 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
     )
     result = llm.invoke(formatted_prompt)
 
-    # Get the main content and convert citation markers
+    # Get the main content - LLM now generates markdown links directly
     content = result.content
-    print(f"[DEBUG] finalize_answer: Original content length: {len(content)}")
+    print(f"[DEBUG] finalize_answer: Generated content length: {len(content)}")
+    print(f"[DEBUG] finalize_answer: ===== FULL GENERATED CONTENT START =====")
+    print(content)
+    print(f"[DEBUG] finalize_answer: ===== FULL GENERATED CONTENT END =====")
     
-    # Validate citations before processing
-    try:
-        citation_validation = validate_citations_in_content(content, sources)
-        print(f"[DEBUG] finalize_answer: Citation validation: {citation_validation}")
+    # Post-process: Convert numeric citations to markdown links
+    import re
+    
+    # Pattern to match citations like [1], [2, 3], [1, 2, 3], etc.
+    citation_pattern = r'\[(\d+(?:,\s*\d+)*)\]'
+    
+    def replace_citation(match):
+        citation_numbers = match.group(1)
+        # Split by comma and process each number
+        numbers = [num.strip() for num in citation_numbers.split(',')]
+        markdown_links = []
         
-        if citation_validation["invalid_citations"]:
-            print(f"[WARNING] finalize_answer: Found invalid citations: {citation_validation['invalid_citations']}")
+        for num in numbers:
+            try:
+                idx = int(num) - 1  # Convert to 0-based index
+                if 0 <= idx < len(deduplicated_sources):
+                    url = deduplicated_sources[idx]['value']
+                    
+                    # Convert file paths to PubMed URLs ONLY for vector database results
+                    if url.startswith('/root/autodl-fs/asd_firsts/extracted_markdown_files/'):
+                        try:
+                            # Import from the correct local path
+                            import sys
+                            import os
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            if current_dir not in sys.path:
+                                sys.path.insert(0, current_dir)
+                            from utils import format_kb_reference
+                            pubmed_url = format_kb_reference(url)
+                            print(f"[DEBUG] finalize_answer: Converting {url} to {pubmed_url}")
+                            url = pubmed_url
+                        except Exception as e:
+                            print(f"[DEBUG] finalize_answer: Failed to convert {url}: {e}")
+                            # Keep original URL if conversion fails
+                    
+                    markdown_links.append(f"[{num}]({url})")
+                else:
+                    print(f"[DEBUG] finalize_answer: Invalid citation index: {num}")
+                    markdown_links.append(f"[{num}]")  # Keep original if invalid
+            except ValueError:
+                print(f"[DEBUG] finalize_answer: Invalid citation number: {num}")
+                markdown_links.append(f"[{num}]")  # Keep original if invalid
         
-        coverage = citation_validation.get("citation_coverage", 0)
-        print(f"[INFO] finalize_answer: Citation coverage: {coverage:.2%}")
-        
-    except ImportError:
-        print("[WARNING] finalize_answer: Citation validation not available")
+        return ', '.join(markdown_links)
     
-    # Convert existing citation markers to unified [#N] format
-    if sources:
-        for idx, source in enumerate(sources, 1):
-            old_marker = source.get("short_url", "")
-            new_marker = f"[#{idx}]"
-            if old_marker in content:
-                content = content.replace(old_marker, new_marker)
-                print(f"[DEBUG] finalize_answer: Converted '{old_marker}' to '{new_marker}'")
+    # Replace all numeric citations with markdown links
+    processed_content = re.sub(citation_pattern, replace_citation, content)
     
-    # Add properly formatted references section
-    references_section = create_references_section(sources)
-    if references_section:
-        content += references_section
-        print(f"[DEBUG] finalize_answer: Added references section")
+    print(f"[DEBUG] finalize_answer: ===== PROCESSED CONTENT START =====")
+    print(processed_content)
+    print(f"[DEBUG] finalize_answer: ===== PROCESSED CONTENT END =====")
     
-    print(f"[DEBUG] finalize_answer: Final content length: {len(content)}")
+    # Validate that markdown links are present
+    markdown_link_pattern = r'\[\d+\]\([^)]+\)'
+    found_links = re.findall(markdown_link_pattern, processed_content)
+    print(f"[DEBUG] finalize_answer: Found {len(found_links)} valid markdown links in processed content")
+    
+    if found_links:
+        print(f"[DEBUG] finalize_answer: ===== FOUND MARKDOWN LINKS =====")
+        for i, link in enumerate(found_links, 1):
+            print(f"[DEBUG] finalize_answer: Link {i}: {link}")
+        print(f"[DEBUG] finalize_answer: ===== END MARKDOWN LINKS =====")
+    else:
+        print(f"[DEBUG] finalize_answer: ❌ NO MARKDOWN LINKS FOUND!")
     
     return {
-        "messages": [AIMessage(content=content)],
-        "sources_gathered": state["sources_gathered"],
+        "messages": [AIMessage(content=processed_content)],
+        "sources_gathered": deduplicated_sources,  # Use deduplicated sources
     }
 
 

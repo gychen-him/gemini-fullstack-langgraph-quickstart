@@ -344,15 +344,14 @@ def prepare_content_with_citations(content_segments: List[Dict], sources_gathere
 
 def enhance_research_summaries_with_citations(summaries: List[str], sources_gathered: List[Dict]) -> str:
     """
-    Enhance research summaries by ensuring proper citation markers are preserved
-    and clearly mapping sources to content.
+    Enhance research summaries by providing URL mappings for direct citation generation.
     
     Args:
         summaries: List of research summary strings
         sources_gathered: List of source dictionaries
         
     Returns:
-        str: Enhanced summaries with clear citation guidance
+        str: Enhanced summaries with URL mapping for direct citation
     """
     if not summaries:
         return ""
@@ -360,23 +359,41 @@ def enhance_research_summaries_with_citations(summaries: List[str], sources_gath
     # Combine all summaries
     combined_summaries = "\n\n---RESEARCH SUMMARY---\n\n".join(summaries)
     
-    # Add source mapping at the end
-    source_mapping = format_research_citations(sources_gathered)
-    
-    if source_mapping:
-        enhanced_content = combined_summaries + "\n\n" + source_mapping
+    # Create URL mapping for LLM
+    if sources_gathered:
+        url_mapping = "\n\nSOURCE URL MAPPING:\n"
+        for idx, source in enumerate(sources_gathered, 1):
+            value = source.get("value", "")
+            label = source.get("label", "")
+            short_url = source.get("short_url", "")
+            
+            # Determine source type based on URL pattern instead of short_url
+            if "pubmed.ncbi.nlm.nih.gov" in value:
+                source_type = "Knowledge Base (PubMed)"
+            else:
+                source_type = "Web Source"
+            
+            url_mapping += f"[{idx}]({value}) - {source_type}: {label}\n"
         
-        # Add additional guidance for the LLM
+        enhanced_content = combined_summaries + url_mapping
+        
+        # Add guidance for direct markdown link generation
         enhanced_content += """
 
-IMPORTANT CITATION GUIDANCE:
-- The above summaries contain citation markers like [0], [1], [KB-1], [KB-2], etc.
-- When writing your response, you MUST preserve these exact citation markers
-- Each citation marker corresponds to a specific source listed in "Available Sources for Citation"
-- Place citations immediately after the relevant claim or fact
-- Do not invent new citation numbers - only use existing ones from the summaries
-- If you reference information that doesn't have a citation marker in the summaries, try to identify which source it likely came from based on the source descriptions above
+IMPORTANT CITATION INSTRUCTIONS:
+- Use the URL mapping above to create direct markdown links in your response
+- Format: [number](URL) where number is the citation number and URL is from the mapping
+- Place citations immediately after relevant claims or facts
+- Do NOT use old bracket formats like [0], [1], [KB-1] - use markdown links directly
+- Do NOT add a separate References section - use inline citations only
+
+EXAMPLE:
+If you want to cite source 1, write: [1](URL_from_mapping_above)
 """
+        
+        print(f"[DEBUG] enhance_research_summaries_with_citations: ===== ENHANCED SUMMARIES FOR LLM START =====")
+        print(enhanced_content)
+        print(f"[DEBUG] enhance_research_summaries_with_citations: ===== ENHANCED SUMMARIES FOR LLM END =====")
         
         return enhanced_content
     
@@ -444,8 +461,17 @@ def validate_citations_in_content(content: str, sources_gathered: List[Dict]) ->
     import re
     
     # Extract all citation markers from content
-    citation_pattern = r'\[(?:KB-\d+|\d+|#\d+)\]'
+    # Updated pattern to match both original markers and markdown links
+    citation_pattern = r'\[(?:KB-\d+|\d+)\](?:\([^)]+\))?'
     found_citations = re.findall(citation_pattern, content)
+    
+    # Clean citations to get the marker part only (remove URLs if present)
+    clean_citations = []
+    for citation in found_citations:
+        # Extract just the marker part: [KB-1] or [1]
+        marker_match = re.match(r'(\[(?:KB-\d+|\d+)\])', citation)
+        if marker_match:
+            clean_citations.append(marker_match.group(1))
     
     # Get available citation markers from sources
     available_markers = set()
@@ -458,14 +484,14 @@ def validate_citations_in_content(content: str, sources_gathered: List[Dict]) ->
     valid_citations = []
     invalid_citations = []
     
-    for citation in found_citations:
+    for citation in clean_citations:
         if citation in available_markers:
             valid_citations.append(citation)
         else:
             invalid_citations.append(citation)
     
     # Check for sources that weren't cited
-    cited_markers = set(found_citations)
+    cited_markers = set(clean_citations)
     missing_sources = [marker for marker in available_markers if marker not in cited_markers]
     
     return {

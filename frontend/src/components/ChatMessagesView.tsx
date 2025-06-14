@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { useState, ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
 import {
   ProcessedEvent,
 } from "@/components/ActivityTimeline";
@@ -41,10 +40,11 @@ const mdComponents = {
       {children}
     </p>
   ),
-  a: ({ className, children, href, ...props }: MdComponentProps) => (
-    <Badge className="text-xs mx-0.5">
+  a: ({ className, children, href, ...props }: MdComponentProps) => {
+    console.log('Rendering link:', { children, href, props });
+    return (
       <a
-        className={cn("text-blue-400 hover:text-blue-300 text-xs", className)}
+        className={cn("inline-flex items-center mx-0.5 px-1 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 rounded border border-blue-500/30 transition-colors cursor-pointer", className)}
         href={href}
         target="_blank"
         rel="noopener noreferrer"
@@ -52,8 +52,8 @@ const mdComponents = {
       >
         {children}
       </a>
-    </Badge>
-  ),
+    );
+  },
   ul: ({ className, children, ...props }: MdComponentProps) => (
     <ul className={cn("list-disc pl-6 mb-3", className)} {...props}>
       {children}
@@ -294,7 +294,7 @@ interface ChatMessagesViewProps {
   messages: Message[];
   isLoading: boolean;
   scrollAreaRef: React.RefObject<HTMLDivElement | null>;
-  onSubmit: (inputValue: string, effort: string, model: string) => void;
+  onSubmit: (inputValue: string) => void;
   onCancel: () => void;
   liveActivityEvents: ProcessedEvent[];
   historicalActivities: Record<string, ProcessedEvent[]>;

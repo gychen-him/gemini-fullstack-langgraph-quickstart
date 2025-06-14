@@ -90,17 +90,19 @@ Instructions:
 
 CRITICAL CITATION REQUIREMENTS:
 - You MUST cite specific sources when making factual claims or using information from the summaries
-- When referencing information from web sources, use the exact citation markers found in the summaries (e.g., [0], [1], etc.)
-- When referencing information from knowledge base sources, use the exact citation markers found in the summaries (e.g., [KB-1], [KB-2], etc.)
+- When referencing information, use SIMPLE BRACKET FORMAT: [number]
+- The summaries contain source mappings that show you which citation numbers correspond to which sources
 - Place citations immediately after the relevant sentence or claim, before punctuation
-- If multiple sources support the same claim, include all relevant citations
-- Do NOT create new citation numbers - only use the ones that already exist in the summaries
+- If multiple sources support the same claim, include all relevant citations: [1, 2, 3]
 - Every factual statement should be traceable to a source through proper citation
+- Do NOT add a separate "References" section - use inline citations only
+- Use only the simple bracket format like [1], [2], [1, 2, 3] - do NOT use URLs or markdown links
 
 EXAMPLE CITATION USAGE:
-- "The company reported a 15% increase in revenue [0]."
-- "According to the research findings, this approach shows promising results [KB-1][2]."
-- "The study concluded that implementation takes 3-6 months [KB-2], while industry experts suggest it could be faster [1][3]."
+- "The company reported a 15% increase in revenue [1]."
+- "According to the research findings [2], this approach shows promising results [3]."
+- "The study concluded that implementation takes 3-6 months [4], while industry experts suggest it could be faster [5]."
+- "Multiple studies confirm this finding [1, 2, 3]."
 
 User Context:
 - {research_topic}
