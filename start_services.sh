@@ -24,6 +24,6 @@ echo $FRONTEND_PID > .frontend.pid
 
 echo "Services started:"
 echo "Backend running on http://localhost:8000"
-echo "Frontend running on http://localhost:5173/app/"
+echo "Frontend URL will be shown in the frontend logs above (may vary due to port conflicts)"
 echo "Use ./stop_services.sh to stop the services"
 echo "Frontend logs are available in logs/frontend.log" 

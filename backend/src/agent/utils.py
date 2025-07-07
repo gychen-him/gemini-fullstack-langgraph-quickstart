@@ -344,14 +344,14 @@ def prepare_content_with_citations(content_segments: List[Dict], sources_gathere
 
 def enhance_research_summaries_with_citations(summaries: List[str], sources_gathered: List[Dict]) -> str:
     """
-    Enhance research summaries by providing URL mappings for direct citation generation.
+    Enhance research summaries by providing source mappings for citation generation.
     
     Args:
         summaries: List of research summary strings
         sources_gathered: List of source dictionaries
         
     Returns:
-        str: Enhanced summaries with URL mapping for direct citation
+        str: Enhanced summaries with source mapping for citation
     """
     if not summaries:
         return ""
@@ -359,36 +359,35 @@ def enhance_research_summaries_with_citations(summaries: List[str], sources_gath
     # Combine all summaries
     combined_summaries = "\n\n---RESEARCH SUMMARY---\n\n".join(summaries)
     
-    # Create URL mapping for LLM
+    # Create simple source mapping for LLM
     if sources_gathered:
-        url_mapping = "\n\nSOURCE URL MAPPING:\n"
+        source_mapping = "\n\nAVAILABLE SOURCES FOR CITATION:\n"
         for idx, source in enumerate(sources_gathered, 1):
             value = source.get("value", "")
             label = source.get("label", "")
-            short_url = source.get("short_url", "")
             
-            # Determine source type based on URL pattern instead of short_url
+            # Determine source type based on URL pattern
             if "pubmed.ncbi.nlm.nih.gov" in value:
                 source_type = "Knowledge Base (PubMed)"
             else:
                 source_type = "Web Source"
             
-            url_mapping += f"[{idx}]({value}) - {source_type}: {label}\n"
+            source_mapping += f"[{idx}] - {source_type}: {label}\n"
         
-        enhanced_content = combined_summaries + url_mapping
+        enhanced_content = combined_summaries + source_mapping
         
-        # Add guidance for direct markdown link generation
+        # Add guidance for simple numeric citation generation
         enhanced_content += """
 
-IMPORTANT CITATION INSTRUCTIONS:
-- Use the URL mapping above to create direct markdown links in your response
-- Format: [number](URL) where number is the citation number and URL is from the mapping
+CITATION INSTRUCTIONS:
+- Use simple bracket format: [1], [2], [3], etc.
 - Place citations immediately after relevant claims or facts
-- Do NOT use old bracket formats like [0], [1], [KB-1] - use markdown links directly
-- Do NOT add a separate References section - use inline citations only
+- You can combine multiple citations: [1, 2, 3]
+- Do NOT include URLs or links in your citations
+- The backend will handle converting these to proper links
 
 EXAMPLE:
-If you want to cite source 1, write: [1](URL_from_mapping_above)
+"This is a fact [1]. Multiple sources support this [2, 3]."
 """
         
         print(f"[DEBUG] enhance_research_summaries_with_citations: ===== ENHANCED SUMMARIES FOR LLM START =====")
